@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neighborhood Data Explorer</title>
-    <!-- Load D3.js V7 Core -->
+    <title>Neighborhood Dynamic Data Plot</title>
+    <!-- Include D3 safely from trusted external CDN library source -->
     <script src="https://d3js.org"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
             margin: 0;
             padding: 20px;
             background-color: #f7fafc;
@@ -64,6 +64,7 @@
             justify-content: center;
             position: relative;
             background: #fff;
+            min-height: 500px;
         }
         .dot {
             fill: #3182ce;
@@ -127,12 +128,12 @@
 
     <div class="control-panel">
         <div class="control-group">
-            <label for="x-select">X-Axis Data Variable</label>
-            <select id="x-select"><option>Loading variables...</option></select>
+            <label for="x-select">X-Axis Variable Picker</label>
+            <select id="x-select"><option>Parsing data stream...</option></select>
         </div>
         <div class="control-group">
-            <label for="y-select">Y-Axis Data Variable</label>
-            <select id="y-select"><option>Loading variables...</option></select>
+            <label for="y-select">Y-Axis Variable Picker</label>
+            <select id="y-select"><option>Parsing data stream...</option></select>
         </div>
     </div>
 
@@ -141,165 +142,7 @@
     </div>
 </div>
 
-<script>
-    // Visual Canvas Configurations
-    const margin = {top: 20, right: 30, bottom: 65, left: 85};
-    const width = 1000 - margin.left - margin.right;
-    const height = 500 - margin.top - margin.bottom;
-
-    // Base SVG Appends
-    const svg = d3.select("#chart")
-        .append("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    const xAxisG = svg.append("g").attr("transform", `translate(0,${height})`);
-    const yAxisG = svg.append("g");
-    const xGridG = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
-    const yGridG = svg.append("g").attr("class", "grid");
-
-    const xLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + 50);
-    const yLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", -60);
-
-    let parsedDataset = [];
-    let validFeatures = [];
-    const tooltipElement = d3.select("#tooltip");
-
-    // Sanitization function for stripping money symbols and percentage strings
-    function sanitizeNumericCell(valueStr) {
-        if (valueStr === undefined || valueStr === null) return 0;
-        let cleaned = valueStr.toString().replace(/[\$\s,%]/g, '').trim();
-        if (cleaned === "" || cleaned === "-") return 0;
-        let num = parseFloat(cleaned);
-        return isNaN(num) ? 0 : num;
-    }
-
-    // Dynamic data ingest mapping demo.csv
-    d3.csv("demo.csv").then(data => {
-        if (!data || data.length === 0) {
-            displayError("The application parsed 'demo.csv' successfully, but found 0 rows of data.");
-            return;
-        }
-
-        // CORRECT WAY: Extract header strings straight from D3's built-in column tracker
-        const columns = data.columns;
-        if (!columns || columns.length === 0) {
-            displayError("Failed to target structural headers within your CSV file layout mapping.");
-            return;
-        }
-
-        // Discard typical descriptor text groupings
-        const textExclusions = ["year", "neighborhood", "name", "id"];
-        validFeatures = columns.filter(colName => {
-            return !textExclusions.some(excludeWord => colName.toLowerCase().includes(excludeWord));
-        });
-
-        // Translate source records safely into structured numeric rows
-        parsedDataset = data.map(row => {
-            let sanitizedRow = {
-                // Dynamically extract whatever variation of neighborhood column text matches
-                neighborhood: row["Neighborhood"] || row["neighborhood"] || Object.values(row)[1] || "Unknown Node Area"
-            };
-            validFeatures.forEach(feature => {
-                sanitizedRow[feature] = sanitizeNumericCell(row[feature]);
-            });
-            return sanitizedRow;
-        });
-
-        // Target dropdown selectors
-        const xSelect = d3.select("#x-select");
-        const ySelect = d3.select("#y-select");
-
-        // Flush text fallbacks away completely
-        xSelect.html("");
-        ySelect.html("");
-
-        // Populate dropdown options with real column headers
-        validFeatures.forEach((feature, index) => {
-            xSelect.append("option").text(feature).attr("value", feature).property("selected", index === 0);
-            ySelect.append("option").text(feature).attr("value", feature).property("selected", index === Math.min(5, validFeatures.length - 1));
-        });
-
-        // Register action triggers
-        xSelect.on("change", updatePlotView);
-        ySelect.on("change", updatePlotView);
-
-        // Initial paint execution
-        updatePlotView();
-
-    }).catch(error => {
-        displayError(`Network error while trying to fetch 'demo.csv'. Check that the file sits in your root repository folder.`);
-        console.error("D3 Ingest Blocked:", error);
-    });
-
-    function updatePlotView() {
-        const currentXKey = d3.select("#x-select").property("value");
-        const currentYKey = d3.select("#y-select").property("value");
-
-        xLabel.text(currentXKey);
-        yLabel.text(currentYKey);
-
-        // Build scaling calculations using the sanitized data points
-        const xScale = d3.scaleLinear()
-            .domain(d3.extent(parsedDataset, d => d[currentXKey]))
-            .range([0, width])
-            .nice();
-
-        const yScale = d3.scaleLinear()
-            .domain(d3.extent(parsedDataset, d => d[currentYKey]))
-            .range([height, 0])
-            .nice();
-
-        // Animate grids and scales
-        xGridG.transition().duration(300).call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
-        yGridG.transition().duration(300).call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
-        xAxisG.transition().duration(300).call(d3.axisBottom(xScale));
-        yAxisG.transition().duration(300).call(d3.axisLeft(yScale));
-
-        // Sync visual circle layout points
-        const points = svg.selectAll(".dot")
-            .data(parsedDataset);
-
-        points.exit().remove();
-
-        // Move existing circles to their new positions
-        points.transition().duration(300)
-            .attr("cx", d => xScale(d[currentXKey]))
-            .attr("cy", d => yScale(d[currentYKey]));
-
-        // Generate brand new visual points
-        const freshPoints = points.enter()
-            .append("circle")
-            .attr("class", "dot")
-            .attr("r", 6)
-            .attr("cx", d => xScale(d[currentXKey]))
-            .attr("cy", d => yScale(d[currentYKey]));
-
-        // Bind custom hover tracking tooltips
-        freshPoints.merge(points)
-            .on("mouseover", (event, d) => {
-                tooltipElement.style("opacity", 1);
-                tooltipElement.html(`
-                ${d.neighborhood}
-                ${currentXKey}: ${d[currentXKey].toLocaleString()}
-                ${currentYKey}: ${d[currentYKey].toLocaleString()}
-                `);
-                })
-                .on("mousemove", (event) => {
-                const [mouseX, mouseY] = d3.pointer(event, d3.select("#chart").node());
-                tooltipElement
-                .style("left", (mouseX + 15) + "px")
-                .style("top", (mouseY - 15) + "px");
-                })
-                .on("mouseleave", () => {
-                tooltipElement.style("opacity", 0);
-                });
-                }
-                function displayError(message) {
-                const statusBox = document.getElementById("status-display");
-                statusBox.innerText = message;
-                statusBox.style.display = "block";
-                statusBox.className = "status-box error";
-                }
+<!-- SECURE INTEGRATION: Linked external execution logic file to comply with strict CSP policies -->
+<script src="app.js"></script>
+</body>
+</html>
