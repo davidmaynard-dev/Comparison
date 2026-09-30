@@ -143,7 +143,7 @@
 </div>
 
 <script>
-    // CSP Compliant, Native D3 Execution Bundle
+    // Dimensions Setup
     const margin = {top: 20, right: 30, bottom: 65, left: 85};
     const width = 1000 - margin.left - margin.right;
     const height = 500 - margin.top - margin.bottom;
@@ -167,6 +167,7 @@
     let numericalHeadersList = [];
     const tooltipNode = d3.select("#tooltip");
 
+    // Clean monetary strings, ratio percentages, and double quote formatting safely
     function cleanCellToNumber(rawStringValue) {
         if (!rawStringValue) return 0;
         let scrubbed = rawStringValue.toString().replace(/[\"\$\s,%!]/g, '').trim();
@@ -175,114 +176,148 @@
         return isNaN(outputFloat) ? 0 : outputFloat;
     }
 
-    // Direct invocation via secure native D3 pipeline
-    d3.csv("demo.csv").then(data => {
-        if (!data || data.length === 0) {
-            throw new Error("Target file loaded successfully but contains absolutely no text contents.");
+    // Secure CSP Compliant Text Row Parser (Does not generate dynamic functions)
+    function parseCSVLine(textString) {
+        let result = [];
+        let insideQuote = false;
+        let entry = "";
+        for (let i = 0; i < textString.length; i++) {
+            let char = textString[i];
+            if (char === '"') {
+                insideQuote = !insideQuote;
+            } else if (char === ',' && !insideQuote) {
+                result.push(entry.trim());
+                entry = "";
+            } else {
+                entry += char;
+            }
         }
+        result.push(entry.trim());
+        return result;
+    }
 
-        const baseHeaders = data.columns;
-        const wordExclusions = ["year", "neighborhood", "name", "id"];
-        
-        numericalHeadersList = baseHeaders.filter(headerName => {
-            if (!headerName) return false;
-            return !wordExclusions.some(badWord => headerName.toLowerCase().includes(badWord));
-        });
+    // Use Native Fetch to obtain plaintext structure without passing through internal D3 loaders
+    const dataFilename = "demo.csv";
+    fetch(dataFilename, { cache: "no-store" })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP Error Status: ${response.status}`);
+            }
+            return response.text();
+        })
+        .then(textData => {
+            if (!textData || textData.trim() === "") {
+                throw new Error("Target file loaded successfully but contains absolutely no text contents.");
+            }
 
-        parsedDataset = data.map(row => {
-            let neighborhoodText = row["Neighborhood"] || row["neighborhood"] || Object.values(row)[1] || "Unknown Area";
-            let mappedObject = { neighborhood: neighborhoodText };
-            numericalHeadersList.forEach(header => {
-                mappedObject[header] = cleanCellToNumber(row[header]);
+            const dataRows = textData.split(/\r?\n/).filter(line => line.trim() !== "");
+            if (dataRows.length < 2) {
+                throw new Error("The target data file lacks structural data records below the row line.");
+            }
+
+            // Isolate headers
+            const baseHeaders = parseCSVLine(dataRows[0]);
+            const wordExclusions = ["year", "neighborhood", "name", "id"];
+            
+            numericalHeadersList = baseHeaders.filter(headerName => {
+                if (!headerName) return false;
+                return !wordExclusions.some(badWord => headerName.toLowerCase().includes(badWord));
             });
-            return mappedObject;
-        });
 
-        const selectXNode = document.getElementById("x-select");
-        const selectYNode = document.getElementById("y-select");
+            if (numericalHeadersList.length < 2) {
+                throw new Error("Could not programmatically isolate separate numerical variables across your header rows.");
+            }
 
-        selectXNode.innerHTML = "";
-        selectYNode.innerHTML = "";
+            // Safe Index-Based Object Mapping (Fully avoids dynamic evaluation triggers)
+            for (let r = 1; r < dataRows.length; r++) {
+                let cellValues = parseCSVLine(dataRows[r]);
+                if (cellValues.length < baseHeaders.length) continue;
 
-        numericalHeadersList.forEach((header, keyIdx) => {
-            let optX = document.createElement("option");
-            optX.value = header;
-            optX.textContent = header;
-            if (keyIdx === 2) optX.selected = true;
-            selectXNode.appendChild(optX);
+                // Find where the neighborhood string column sits
+                let neighborhoodText = cellValues[1] || "Unknown Node Area";
+                let mappedObject = { neighborhood: neighborhoodText };
 
-            let optY = document.createElement("option");
-            optY.value = header;
-            optY.textContent = header;
-            if (keyIdx === Math.min(33, numericalHeadersList.length - 1)) optY.selected = true;
-            selectYNode.appendChild(optY);
-        });
+                baseHeaders.forEach((header, index) => {
+                    if (numericalHeadersList.includes(header)) {
+                        mappedObject[header] = cleanCellToNumber(cellValues[index]);
+                    }
+                });
+                parsedDataset.push(mappedObject);
+            }
 
-        selectXNode.addEventListener("change", updateScatterPlotGraphics);
-        selectYNode.addEventListener("change", updateScatterPlotGraphics);
+            const selectXNode = document.getElementById("x-select");
+            const selectYNode = document.getElementById("y-select");
 
-        updateScatterPlotGraphics();
-    }).catch(runtimeError => {
-        const errorDivElement = document.getElementById("status-display");
-        errorDivElement.innerText = `Execution Failed: ${runtimeError.message}. Double-check that your file is named exactly 'demo.csv' (all lowercase) and matches the root folder location.`;
+            selectXNode.innerHTML = "";
+            selectYNode.innerHTML = "";
+
+            numericalHeadersList.forEach((header, keyIdx) => {
+                let optX = document.createElement("option");
+                optX.value = header;
+                optX.textContent = header;
+                if (keyIdx === 2) optX.selected = true; // SEX AND AGE!!Total population default
+                selectXNode.appendChild(optX);
+
+                let optY = document.createElement("option");
+                optY.value = header;
+                optY.textContent = header;
+                // Set default Y axis to fall on an alternative column index mapping parameter
+                if (keyIdx === Math.min(33, numericalHeadersList.length - 1)) optY.selected = true; 
+                selectYNode.appendChild(optY);
+            });
+
+            selectXNode.addEventListener("change", updateScatterPlotGraphics);
+            selectYNode.addEventListener("change", updateScatterPlotGraphics);
+
+            updateScatterPlotGraphics();
+        })
+        .catch(runtimeError => {
+            const errorDivElement = document.getElementById("status-display");
+        errorDivElement.innerText = Execution Failed: ${runtimeError.message}. Double-check that your file is named exactly 'demo.csv' (all lowercase) and matches the root folder location.;
         errorDivElement.style.display = "block";
         errorDivElement.className = "status-box error";
         console.error(runtimeError);
-    });
-
-    function updateScatterPlotGraphics() {
+        });
+        function updateScatterPlotGraphics() {
         const currentXSelection = document.getElementById("x-select").value;
         const currentYSelection = document.getElementById("y-select").value;
-
         xLabel.text(currentXSelection);
         yLabel.text(currentYSelection);
-
         const scaleX = d3.scaleLinear()
-            .domain(d3.extent(parsedDataset, d => d[currentXSelection]))
-            .range([0, width])
-            .nice();
-
+        .domain(d3.extent(parsedDataset, d => d[currentXSelection]))
+        .range([0, width])
+        .nice();
         const scaleY = d3.scaleLinear()
-            .domain(d3.extent(parsedDataset, d => d[currentYSelection]))
-            .range([height, 0])
-            .nice();
-
+        .domain(d3.extent(parsedDataset, d => d[currentYSelection]))
+        .range([height, 0])
+        .nice();
         xGridG.transition().duration(250).call(d3.axisBottom(scaleX).tickSize(-height).tickFormat(""));
         yGridG.transition().duration(250).call(d3.axisLeft(scaleY).tickSize(-width).tickFormat(""));
         xAxisG.transition().duration(250).call(d3.axisBottom(scaleX));
         yAxisG.transition().duration(250).call(d3.axisLeft(scaleY));
-
         const nodes = svg.selectAll(".dot").data(parsedDataset);
         nodes.exit().remove();
-
         nodes.transition().duration(250)
-            .attr("cx", d => scaleX(d[currentXSelection]))
-            .attr("cy", d => scaleY(d[currentYSelection]));
-
+        .attr("cx", d => scaleX(d[currentXSelection]))
+        .attr("cy", d => scaleY(d[currentYSelection]));
         const entryNodes = nodes.enter()
-            .append("circle")
-            .attr("class", "dot")
-            .attr("r", 6)
-            .attr("cx", d => scaleX(d[currentXSelection]))
-            .attr("cy", d => scaleY(d[currentYSelection]));
-
+        .append("circle")
+        .attr("class", "dot")
+        .attr("r", 6)
+        .attr("cx", d => scaleX(d[currentXSelection]))
+        .attr("cy", d => scaleY(d[currentYSelection]));
         entryNodes.merge(nodes)
-            .on("mouseover", (event, dataRecord) => {
-                tooltipNode.style("opacity", 1);
-                tooltipNode.html(`
-                    <strong style="color:#63b3ed; font-size:13px;">${dataRecord.neighborhood}</strong><br/>
-                    <hr style="border:0; border-top:1px solid #4a5568; margin:4px 0;"/>
-                    <span style="color:#a0aec0">${currentXSelection}:</span> ${dataRecord[currentXSelection].toLocaleString()}<br/>
-                    ${currentYSelection}: ${dataRecord[currentYSelection].toLocaleString()}
-                    `);
-                    })
-            .on("mousemove", (event) => {
-                const [cursorX, cursorY] = d3.pointer(event, d3.select("#chart").node());
-                tooltipNode
-                    .style("left", (cursorX + 15) + "px")
-                    .style("top", (cursorY - 15) + "px");
-                    })
-            .on("mouseleave", () => {
-                tooltipNode.style("opacity", 0);
-                });
-                }
+        .on("mouseover", (event, dataRecord) => {
+        tooltipNode.style("opacity", 1);
+        tooltipNode.html(<strong style="color:#63b3ed; font-size:13px;">${dataRecord.neighborhood}</strong><br/> <hr style="border:0; border-top:1px solid #4a5568; margin:4px 0;"/> <span style="color:#a0aec0">${currentXSelection}:</span> ${dataRecord[currentXSelection].toLocaleString()}<br/> <span style="color:#a0aec0">${currentYSelection}:</span> ${dataRecord[currentYSelection].toLocaleString()});
+        })
+        .on("mousemove", (event) => {
+        const [cursorX, cursorY] = d3.pointer(event, d3.select("#chart").node());
+        tooltipNode
+        .style("left", (cursorX + 15) + "px")
+        .style("top", (cursorY - 15) + "px");
+        })
+        .on("mouseleave", () => {
+        tooltipNode.style("opacity", 0);
+        });
+        }
