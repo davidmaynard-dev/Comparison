@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neighborhood Scatter Plot</title>
-    <!-- Load D3 Library -->
+    <title>Neighborhood Data Explorer</title>
+    <!-- Load D3.js V7 Core -->
     <script src="https://d3js.org"></script>
     <style>
         body {
@@ -15,16 +15,17 @@
             color: #2d3748;
         }
         .container {
-            max-width: 1100px;
+            max-width: 1050px;
             margin: 0 auto;
             background: #ffffff;
             padding: 25px;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
         }
         h1 {
             margin-top: 0;
             font-size: 22px;
+            color: #1a202c;
             border-bottom: 2px solid #edf2f7;
             padding-bottom: 12px;
         }
@@ -44,12 +45,13 @@
         }
         label {
             font-weight: bold;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
             color: #4a5568;
+            letter-spacing: 0.5px;
         }
         select {
-            padding: 8px 12px;
+            padding: 10px 12px;
             font-size: 14px;
             border: 1px solid #cbd5e0;
             border-radius: 4px;
@@ -90,24 +92,29 @@
         }
         .tooltip {
             position: absolute;
-            padding: 10px;
+            padding: 12px;
             background: rgba(26, 32, 44, 0.95);
             color: #fff;
             border-radius: 6px;
             font-size: 12px;
+            line-height: 1.5;
             pointer-events: none;
             opacity: 0;
-            z-index: 10;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 1px solid #4a5568;
         }
-        .error-message {
-            color: #9b2c2c;
-            background: #fff5f5;
+        .status-box {
             padding: 12px;
             border-radius: 4px;
-            border: 1px solid #fed7d7;
             margin-bottom: 20px;
             display: none;
+            font-weight: 500;
+        }
+        .error {
+            color: #9b2c2c;
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
         }
     </style>
 </head>
@@ -116,16 +123,16 @@
 <div class="container">
     <h1>Neighborhood Dynamic Scatter Plot</h1>
     
-    <div id="error-display" class="error-message"></div>
+    <div id="status-display" class="status-box"></div>
 
     <div class="control-panel">
         <div class="control-group">
-            <label for="x-select">X-Axis Variable</label>
-            <select id="x-select"></select>
+            <label for="x-select">X-Axis Data Variable</label>
+            <select id="x-select"><option>Loading variables...</option></select>
         </div>
         <div class="control-group">
-            <label for="y-select">Y-Axis Variable</label>
-            <select id="y-select"></select>
+            <label for="y-select">Y-Axis Data Variable</label>
+            <select id="y-select"><option>Loading variables...</option></select>
         </div>
     </div>
 
@@ -135,12 +142,12 @@
 </div>
 
 <script>
-    // Dimensions Setup
-    const margin = {top: 20, right: 30, bottom: 60, left: 80};
-    const width = 960 - margin.left - margin.right;
+    // Visual Canvas Configurations
+    const margin = {top: 20, right: 30, bottom: 65, left: 85};
+    const width = 1000 - margin.left - margin.right;
     const height = 500 - margin.top - margin.bottom;
 
-    // Canvas Initializations
+    // Base SVG Appends
     const svg = d3.select("#chart")
         .append("svg")
             .attr("width", width + margin.left + margin.right)
@@ -153,141 +160,146 @@
     const xGridG = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
     const yGridG = svg.append("g").attr("class", "grid");
 
-    const xLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + 45);
-    const yLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", -55);
+    const xLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + 50);
+    const yLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", -60);
 
-    let parsedData = [];
-    let numericKeys = [];
-    const tooltip = d3.select("#tooltip");
+    let parsedDataset = [];
+    let validFeatures = [];
+    const tooltipElement = d3.select("#tooltip");
 
-    // Clean out all messy formatting symbols ($ , % spaces) from numeric rows
-    function cleanNumericValue(val) {
-        if (val === undefined || val === null) return 0;
-        let str = val.toString().replace(/[\$\s,%!]/g, '').trim();
-        if (str === "" || str === "-") return 0;
-        let num = parseFloat(str);
-        return isNaN(num) ? null : num;
+    // Sanitization function for stripping money symbols and percentage strings
+    function sanitizeNumericCell(valueStr) {
+        if (valueStr === undefined || valueStr === null) return 0;
+        let cleaned = valueStr.toString().replace(/[\$\s,%]/g, '').trim();
+        if (cleaned === "" || cleaned === "-") return 0;
+        let num = parseFloat(cleaned);
+        return isNaN(num) ? 0 : num;
     }
 
-    // Direct fetch tracking demo.csv
+    // Dynamic data ingest mapping demo.csv
     d3.csv("demo.csv").then(data => {
         if (!data || data.length === 0) {
-            showError("Empty file structure found. Verify data exists in demo.csv.");
+            displayError("The application parsed 'demo.csv' successfully, but found 0 rows of data.");
             return;
         }
 
-        // Isolate actual columns names directly from the csv keys
-        const rawKeys = Object.keys(data[0]);
-        
-        // Exclude text columns from mapping as axes metrics
-        const excludeList = ["5 year", "year", "neighborhood", "name", "id"];
-        numericKeys = rawKeys.filter(k => !excludeList.some(ex => k.toLowerCase().includes(ex)));
+        // CORRECT WAY: Extract header strings straight from D3's built-in column tracker
+        const columns = data.columns;
+        if (!columns || columns.length === 0) {
+            displayError("Failed to target structural headers within your CSV file layout mapping.");
+            return;
+        }
 
-        // Map and parse the full dataset securely
-        parsedData = data.map(d => {
-            let rowObj = {
-                // Safely extract whatever variation of neighborhood column text matches
-                neighborhood: d["Neighborhood"] || d["neighborhood"] || Object.values(d)[1] || "Unknown Area"
-            };
-            numericKeys.forEach(k => {
-                rowObj[k] = cleanNumericValue(d[k]);
-            });
-            return rowObj;
+        // Discard typical descriptor text groupings
+        const textExclusions = ["year", "neighborhood", "name", "id"];
+        validFeatures = columns.filter(colName => {
+            return !textExclusions.some(excludeWord => colName.toLowerCase().includes(excludeWord));
         });
 
-        // Populate Dropdowns without strict inner formatting failures
+        // Translate source records safely into structured numeric rows
+        parsedDataset = data.map(row => {
+            let sanitizedRow = {
+                // Dynamically extract whatever variation of neighborhood column text matches
+                neighborhood: row["Neighborhood"] || row["neighborhood"] || Object.values(row)[1] || "Unknown Node Area"
+            };
+            validFeatures.forEach(feature => {
+                sanitizedRow[feature] = sanitizeNumericCell(row[feature]);
+            });
+            return sanitizedRow;
+        });
+
+        // Target dropdown selectors
         const xSelect = d3.select("#x-select");
         const ySelect = d3.select("#y-select");
 
-        numericKeys.forEach((key, i) => {
-            xSelect.append("option").text(key).attr("value", key).property("selected", i === 0);
-            // Default Y axis option to another index so they don't mirror on initial load
-            ySelect.append("option").text(key).attr("value", key).property("selected", i === Math.min(2, numericKeys.length - 1));
+        // Flush text fallbacks away completely
+        xSelect.html("");
+        ySelect.html("");
+
+        // Populate dropdown options with real column headers
+        validFeatures.forEach((feature, index) => {
+            xSelect.append("option").text(feature).attr("value", feature).property("selected", index === 0);
+            ySelect.append("option").text(feature).attr("value", feature).property("selected", index === Math.min(5, validFeatures.length - 1));
         });
 
-        // Bind update triggers to changes in the dropdown filters
-        xSelect.on("change", updateVisualization);
-        ySelect.on("change", updateVisualization);
+        // Register action triggers
+        xSelect.on("change", updatePlotView);
+        ySelect.on("change", updatePlotView);
 
-        // Run primary visual mapping layout pass
-        updateVisualization();
+        // Initial paint execution
+        updatePlotView();
 
     }).catch(error => {
-        showError("Unable to locate or parse 'demo.csv'. Check that the file is named exactly 'demo.csv' and matches this directory layout.");
-        console.error(error);
+        displayError(`Network error while trying to fetch 'demo.csv'. Check that the file sits in your root repository folder.`);
+        console.error("D3 Ingest Blocked:", error);
     });
 
-    function updateVisualization() {
-        const xKey = d3.select("#x-select").property("value");
-        const yKey = d3.select("#y-select").property("value");
+    function updatePlotView() {
+        const currentXKey = d3.select("#x-select").property("value");
+        const currentYKey = d3.select("#y-select").property("value");
 
-        // Sync visual labels
-        xLabel.text(xKey);
-        yLabel.text(yKey);
+        xLabel.text(currentXKey);
+        yLabel.text(currentYKey);
 
-        // Define plotting map boundaries
+        // Build scaling calculations using the sanitized data points
         const xScale = d3.scaleLinear()
-            .domain(d3.extent(parsedData, d => d[xKey]))
+            .domain(d3.extent(parsedDataset, d => d[currentXKey]))
             .range([0, width])
             .nice();
 
         const yScale = d3.scaleLinear()
-            .domain(d3.extent(parsedData, d => d[yKey]))
+            .domain(d3.extent(parsedDataset, d => d[currentYKey]))
             .range([height, 0])
             .nice();
 
-        // Render grids
-        xGridG.transition().duration(250).call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
-        yGridG.transition().duration(250).call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
+        // Animate grids and scales
+        xGridG.transition().duration(300).call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
+        yGridG.transition().duration(300).call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
+        xAxisG.transition().duration(300).call(d3.axisBottom(xScale));
+        yAxisG.transition().duration(300).call(d3.axisLeft(yScale));
 
-        // Render Axis markers
-        xAxisG.transition().duration(250).call(d3.axisBottom(xScale));
-        yAxisG.transition().duration(250).call(d3.axisLeft(yScale));
+        // Sync visual circle layout points
+        const points = svg.selectAll(".dot")
+            .data(parsedDataset);
 
-        // Coordinate space items rendering update loop
-        const selection = svg.selectAll(".dot")
-            .data(parsedData);
+        points.exit().remove();
 
-        // Clear out old nodes
-        selection.exit().remove();
+        // Move existing circles to their new positions
+        points.transition().duration(300)
+            .attr("cx", d => xScale(d[currentXKey]))
+            .attr("cy", d => yScale(d[currentYKey]));
 
-        // Update current points smoothly
-        selection.transition().duration(250)
-            .attr("cx", d => xScale(d[xKey]))
-            .attr("cy", d => yScale(d[yKey]));
-
-        // Generate brand new geometric points
-        const enterPoints = selection.enter()
+        // Generate brand new visual points
+        const freshPoints = points.enter()
             .append("circle")
             .attr("class", "dot")
             .attr("r", 6)
-            .attr("cx", d => xScale(d[xKey]))
-            .attr("cy", d => yScale(d[yKey]));
+            .attr("cx", d => xScale(d[currentXKey]))
+            .attr("cy", d => yScale(d[currentYKey]));
 
-        // Setup unified tooltip visibility settings
-        enterPoints.merge(selection)
+        // Bind custom hover tracking tooltips
+        freshPoints.merge(points)
             .on("mouseover", (event, d) => {
-                tooltip.style("opacity", 1);
-                tooltip.html(`
-                    <strong>${d.neighborhood}</strong><br/>
-                    <span style="color:#cbd5e0">${xKey}:</span> ${d[xKey] !== null ? d[xKey].toLocaleString() : 'N/A'}<br/>
-                    <span style="color:#cbd5e0">${yKey}:</span> ${d[yKey] !== null ? d[yKey].toLocaleString() : 'N/A'}
+                tooltipElement.style("opacity", 1);
+                tooltipElement.html(`
+                ${d.neighborhood}
+                ${currentXKey}: ${d[currentXKey].toLocaleString()}
+                ${currentYKey}: ${d[currentYKey].toLocaleString()}
                 `);
-            })
-            .on("mousemove", (event) => {
-                const [mX, mY] = d3.pointer(event, d3.select("#chart").node());
-                tooltip
-                    .style("left", (mX + 15) + "px")
-                    .style("top", (mY - 15) + "px");
-            })
-            .on("mouseleave", () => {
-                tooltip.style("opacity", 0);
-            });
-    }
-
-    function showError(msg) {
-        const box = document.getElementById("error-display");
-        box.innerText = msg;
-        box.style.display = "block";
-    }
-
+                })
+                .on("mousemove", (event) => {
+                const [mouseX, mouseY] = d3.pointer(event, d3.select("#chart").node());
+                tooltipElement
+                .style("left", (mouseX + 15) + "px")
+                .style("top", (mouseY - 15) + "px");
+                })
+                .on("mouseleave", () => {
+                tooltipElement.style("opacity", 0);
+                });
+                }
+                function displayError(message) {
+                const statusBox = document.getElementById("status-display");
+                statusBox.innerText = message;
+                statusBox.style.display = "block";
+                statusBox.className = "status-box error";
+                }
