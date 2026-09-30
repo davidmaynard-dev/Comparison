@@ -3,332 +3,291 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neighborhood Variables Explorer</title>
-    <!-- Include D3.js V7 Data Visualization Library -->
+    <title>Neighborhood Scatter Plot</title>
+    <!-- Load D3 Library -->
     <script src="https://d3js.org"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             margin: 0;
             padding: 20px;
-            background-color: #f4f6f9;
+            background-color: #f7fafc;
             color: #2d3748;
         }
-        .app-container {
+        .container {
             max-width: 1100px;
             margin: 0 auto;
             background: #ffffff;
             padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
         }
         h1 {
             margin-top: 0;
-            font-size: 24px;
-            color: #1a202c;
-            border-bottom: 2px solid #e2e8f0;
+            font-size: 22px;
+            border-bottom: 2px solid #edf2f7;
             padding-bottom: 12px;
         }
-        .filter-panel {
+        .control-panel {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             background: #edf2f7;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 25px;
         }
-        .filter-group {
+        .control-group {
             display: flex;
             flex-direction: column;
             gap: 6px;
         }
         label {
-            font-weight: 700;
-            font-size: 13px;
+            font-weight: bold;
+            font-size: 12px;
             text-transform: uppercase;
             color: #4a5568;
-            letter-spacing: 0.5px;
         }
         select {
-            padding: 10px 12px;
+            padding: 8px 12px;
             font-size: 14px;
             border: 1px solid #cbd5e0;
-            border-radius: 6px;
-            background-color: #fff;
-            cursor: pointer;
+            border-radius: 4px;
+            background-color: white;
             width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-            text-overflow: ellipsis;
+            cursor: pointer;
         }
-        select:focus {
-            outline: none;
-            border-color: #3182ce;
-            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.5);
-        }
-        #chart-viewport {
+        #chart {
             display: flex;
             justify-content: center;
-            background: #ffffff;
             position: relative;
-            min-height: 500px;
+            background: #fff;
         }
         .dot {
             fill: #3182ce;
-            fill-opacity: 0.65;
+            fill-opacity: 0.7;
             stroke: #2b6cb0;
             stroke-width: 1px;
-            transition: r 0.2s ease, fill 0.2s ease, fill-opacity 0.2s ease;
         }
         .dot:hover {
             fill: #e53e3e;
             fill-opacity: 1;
             stroke: #9b2c2c;
-            stroke-width: 2px;
+            stroke-width: 1.5px;
             cursor: pointer;
         }
         .axis-label {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             fill: #4a5568;
         }
         .grid line {
             stroke: #e2e8f0;
-            stroke-opacity: 0.8;
             shape-rendering: crispEdges;
         }
         .grid path {
             stroke-width: 0;
         }
-        .chart-tooltip {
+        .tooltip {
             position: absolute;
-            padding: 12px 16px;
+            padding: 10px;
             background: rgba(26, 32, 44, 0.95);
-            color: #ffffff;
-            border-radius: 8px;
-            font-size: 13px;
-            line-height: 1.4;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 12px;
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.15s ease;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            z-index: 100;
-            border: 1px solid #4a5568;
+            z-index: 10;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .status-box {
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            display: none;
-            font-weight: 500;
-        }
-        .error {
+        .error-message {
             color: #9b2c2c;
             background: #fff5f5;
+            padding: 12px;
+            border-radius: 4px;
             border: 1px solid #fed7d7;
+            margin-bottom: 20px;
+            display: none;
         }
     </style>
 </head>
 <body>
 
-<div class="app-container">
-    <h1>Neighborhood Scatter Plot Interface</h1>
+<div class="container">
+    <h1>Neighborhood Dynamic Scatter Plot</h1>
     
-    <div id="status-message" class="status-box"></div>
+    <div id="error-display" class="error-message"></div>
 
-    <div class="filter-panel">
-        <div class="filter-group">
-            <label for="x-axis-select">Horizontal X-Axis Metric</label>
-            <select id="x-axis-select"></select>
+    <div class="control-panel">
+        <div class="control-group">
+            <label for="x-select">X-Axis Variable</label>
+            <select id="x-select"></select>
         </div>
-        <div class="filter-group">
-            <label for="y-axis-select">Vertical Y-Axis Metric</label>
-            <select id="y-select-container"><select id="y-axis-select"></select></select>
+        <div class="control-group">
+            <label for="y-select">Y-Axis Variable</label>
+            <select id="y-select"></select>
         </div>
     </div>
 
-    <div id="chart-viewport">
-        <div id="tooltip" class="chart-tooltip"></div>
+    <div id="chart">
+        <div id="tooltip" class="tooltip"></div>
     </div>
 </div>
 
 <script>
-    // Configuration metrics for plotting dimensions
-    const margin = {top: 30, right: 30, bottom: 65, left: 85};
-    const width = 1000 - margin.left - margin.right;
-    const height = 550 - margin.top - margin.bottom;
+    // Dimensions Setup
+    const margin = {top: 20, right: 30, bottom: 60, left: 80};
+    const width = 960 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
 
-    // Render underlying SVG components onto screen viewport
-    const svg = d3.select("#chart-viewport")
+    // Canvas Initializations
+    const svg = d3.select("#chart")
         .append("svg")
             .attr("width", width + margin.left + margin.right)
             .attr("height", height + margin.top + margin.bottom)
         .append("g")
             .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Axis visual layout tracking targets
-    const xAxisContainer = svg.append("g").attr("transform", `translate(0,${height})`);
-    const yAxisContainer = svg.append("g");
-    const xGridContainer = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
-    const yGridContainer = svg.append("g").attr("class", "grid");
+    const xAxisG = svg.append("g").attr("transform", `translate(0,${height})`);
+    const yAxisG = svg.append("g");
+    const xGridG = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
+    const yGridG = svg.append("g").attr("class", "grid");
 
-    // Static text labels on layout
-    const xLabel = svg.append("text")
-        .attr("class", "axis-label")
-        .attr("text-anchor", "middle")
-        .attr("x", width / 2)
-        .attr("y", height + 50);
+    const xLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + 45);
+    const yLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", -55);
 
-    const yLabel = svg.append("text")
-        .attr("class", "axis-label")
-        .attr("text-anchor", "middle")
-        .attr("transform", "rotate(-90)")
-        .attr("x", -height / 2)
-        .attr("y", -60);
+    let parsedData = [];
+    let numericKeys = [];
+    const tooltip = d3.select("#tooltip");
 
-    // Dynamic runtime data states
-    let dataset = [];
-    let selectableVariables = [];
-    const tooltipNode = d3.select("#tooltip");
+    // Clean out all messy formatting symbols ($ , % spaces) from numeric rows
+    function cleanNumericValue(val) {
+        if (val === undefined || val === null) return 0;
+        let str = val.toString().replace(/[\$\s,%!]/g, '').trim();
+        if (str === "" || str === "-") return 0;
+        let num = parseFloat(str);
+        return isNaN(num) ? null : num;
+    }
 
-    // Load data directly from demo.csv
-    d3.csv("demo.csv").then(rawData => {
-        if (!rawData || rawData.length === 0) {
-            showError("The target 'demo.csv' file contains no observable text data records.");
+    // Direct fetch tracking demo.csv
+    d3.csv("demo.csv").then(data => {
+        if (!data || data.length === 0) {
+            showError("Empty file structure found. Verify data exists in demo.csv.");
             return;
         }
 
-        // Clean values, removing symbols ($ , % ! spaces) to parse them as valid floats
-        const parseSanitizedValue = (val) => {
-            if (val === undefined || val === null) return 0;
-            let clean = val.toString().replace(/[\$\|%\s,]/g, '').trim();
-            // Fallback default value if field is completely blank or empty
-            if (clean === "" || clean === "-") return 0;
-            let parsed = parseFloat(clean);
-            return isNaN(parsed) ? null : parsed;
-        };
-
-        // Determine which features are eligible to serve as filter criteria metrics
-        const samples = rawData[0];
-        const exclusions = ["5 year", "year", "neighborhood", "name", "id"];
+        // Isolate actual columns names directly from the csv keys
+        const rawKeys = Object.keys(data[0]);
         
-        selectableVariables = Object.keys(samples).filter(key => {
-            if (exclusions.some(ex => key.toLowerCase().includes(ex))) return false;
-            // Validate if value contains structural float contents once cleaned
-            return parseSanitizedValue(samples[key]) !== null;
-        });
+        // Exclude text columns from mapping as axes metrics
+        const excludeList = ["5 year", "year", "neighborhood", "name", "id"];
+        numericKeys = rawKeys.filter(k => !excludeList.some(ex => k.toLowerCase().includes(ex)));
 
-        if (selectableVariables.length < 2) {
-            showError("Could not dynamically isolate valid numerical variables inside your CSV data framework layout.");
-            return;
-        }
-
-        // Standardize clean metrics back to internal memory model arrays
-        dataset = rawData.map((row, idx) => {
-            let parsedRecord = {
-                id: idx,
-                // Capture primary neighborhood identifiers dynamically
-                neighborhood: row["Neighborhood"] || row["neighborhood"] || Object.values(row)[1] || "Unknown Base Location"
+        // Map and parse the full dataset securely
+        parsedData = data.map(d => {
+            let rowObj = {
+                // Safely extract whatever variation of neighborhood column text matches
+                neighborhood: d["Neighborhood"] || d["neighborhood"] || Object.values(d)[1] || "Unknown Area"
             };
-            selectableVariables.forEach(variable => {
-                parsedRecord[variable] = parseSanitizedValue(row[variable]);
+            numericKeys.forEach(k => {
+                rowObj[k] = cleanNumericValue(d[k]);
             });
-            return parsedRecord;
+            return rowObj;
         });
 
-        // Inject configuration select drop downs onto filters framework
-        const xSelector = d3.select("#x-axis-select");
-        const ySelector = d3.select("#y-axis-select");
+        // Populate Dropdowns without strict inner formatting failures
+        const xSelect = d3.select("#x-select");
+        const ySelect = d3.select("#y-select");
 
-        selectableVariables.forEach((variable, index) => {
-            xSelector.append("option").text(variable).attr("value", variable).property("selected", index === 2); // Default to Age/Male metric
-            ySelector.append("option").text(variable).attr("value", variable).property("selected", index === 33); // Default to Median Income metric
+        numericKeys.forEach((key, i) => {
+            xSelect.append("option").text(key).attr("value", key).property("selected", i === 0);
+            // Default Y axis option to another index so they don't mirror on initial load
+            ySelect.append("option").text(key).attr("value", key).property("selected", i === Math.min(2, numericKeys.length - 1));
         });
 
-        // Set dynamic layout listener updates
-        xSelector.on("change", redrawScatterPlot);
-        ySelector.on("change", redrawScatterPlot);
+        // Bind update triggers to changes in the dropdown filters
+        xSelect.on("change", updateVisualization);
+        ySelect.on("change", updateVisualization);
 
-        // Execute render build
-        redrawScatterPlot();
+        // Run primary visual mapping layout pass
+        updateVisualization();
 
-    }).catch(err => {
-        showError(`Network/IO Error accessing 'demo.csv': ${err.message}. Ensure it sits inside your root deployment folder branch.`);
+    }).catch(error => {
+        showError("Unable to locate or parse 'demo.csv'. Check that the file is named exactly 'demo.csv' and matches this directory layout.");
+        console.error(error);
     });
 
-    function redrawScatterPlot() {
-        const selectedXVariable = d3.select("#x-axis-select").property("value");
-        const selectedYVariable = d3.select("#y-axis-select").property("value");
+    function updateVisualization() {
+        const xKey = d3.select("#x-select").property("value");
+        const yKey = d3.select("#y-select").property("value");
 
-        // Format axis labels safely
-        xLabel.text(selectedXVariable);
-        yLabel.text(selectedYVariable);
+        // Sync visual labels
+        xLabel.text(xKey);
+        yLabel.text(yKey);
 
-        // Map linear layout scale constraints dynamically based on filtered metric data arrays
-        const horizontalScale = d3.scaleLinear()
-            .domain(d3.extent(dataset, d => d[selectedXVariable]))
+        // Define plotting map boundaries
+        const xScale = d3.scaleLinear()
+            .domain(d3.extent(parsedData, d => d[xKey]))
             .range([0, width])
             .nice();
 
-        const verticalScale = d3.scaleLinear()
-            .domain(d3.extent(dataset, d => d[selectedYVariable]))
+        const yScale = d3.scaleLinear()
+            .domain(d3.extent(parsedData, d => d[yKey]))
             .range([height, 0])
             .nice();
 
-        // Animate mathematical scale background grid arrays
-        xGridContainer.transition().duration(400).call(d3.axisBottom(horizontalScale).tickSize(-height).tickFormat(""));
+        // Render grids
+        xGridG.transition().duration(250).call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
+        yGridG.transition().duration(250).call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
 
-        yGridContainer.transition().duration(400).call(d3.axisLeft(verticalScale).tickSize(-width).tickFormat(""));
-        
-        // Render graphical scale container elements smoothly
-        xAxisContainer.transition().duration(400).call(d3.axisBottom(horizontalScale).ticks(10));
-        yAxisContainer.transition().duration(400).call(d3.axisLeft(verticalScale).ticks(10));
-        
-        // Sync items matrix array mappings to data elements
-        const plottedPoints = svg.selectAll(".dot")
-        .data(dataset, d => d.id);
-        
-        // Terminate extra elements gracefully
-        plottedPoints.exit().remove();
-        
-        // Relocate existing geometric components smoothly across graph coordinate spaces
-        plottedPoints.transition().duration(400)
-        .attr("cx", d => horizontalScale(d[selectedXVariable]))
-        .attr("cy", d => verticalScale(d[selectedYVariable]))
-        .attr("r", 6);
-        
-        // Map fresh structural components onto workspace
-        const newPoints = plottedPoints.enter()
-        .append("circle")
-        .attr("class", "dot")
-        .attr("r", 0) // Start at zero for enter transition expansion animation effects
-        .attr("cx", d => horizontalScale(d[selectedXVariable]))
-        .attr("cy", d => verticalScale(d[selectedYVariable]));
-        newPoints.transition().duration(600).attr("r", 6);
-        
-        // Combine selections to update modern interactive hover data tooltip actions
-        newPoints.merge(plottedPoints)
-        .on("mouseover", (event, dataPayload) => {
-        tooltipNode.style("opacity", 1);
-        
-        // Helper method to reconstruct clean strings back to normal view modes
-        const formatLabel = (v) => typeof v === 'number' ? v.toLocaleString() : v;
-        tooltipNode.html(<strong style="color:#63b3ed; font-size:14px;">${dataPayload.neighborhood}</strong><br/> <hr style="border:0; border-top:1px solid #4a5568; margin:6px 0;"/> <span style="color:#a0aec0">${selectedXVariable}:</span> <strong>${formatLabel(dataPayload[selectedXVariable])}</strong><br/> <span style="color:#a0aec0">${selectedYVariable}:</span> <strong>${formatLabel(dataPayload[selectedYVariable])}</strong>);
-        })
-        .on("mousemove", (event) => {
-        const [cursorX, cursorY] = d3.pointer(event, d3.select("#chart-viewport").node());
-        tooltipNode
-        .style("left", (cursorX + 20) + "px")
-        .style("top", (cursorY - 20) + "px");
-        })
-        .on("mouseleave", () => {
-        tooltipNode.style("opacity", 0);
-        });
-        }
-        function showError(messageString) {
-        const errorDisplayNode = document.getElementById("status-message");
-        errorDisplayNode.innerText = messageString;
-        errorDisplayNode.style.display = "block";
-        errorDisplayNode.className = "status-box error";
-        }
+        // Render Axis markers
+        xAxisG.transition().duration(250).call(d3.axisBottom(xScale));
+        yAxisG.transition().duration(250).call(d3.axisLeft(yScale));
+
+        // Coordinate space items rendering update loop
+        const selection = svg.selectAll(".dot")
+            .data(parsedData);
+
+        // Clear out old nodes
+        selection.exit().remove();
+
+        // Update current points smoothly
+        selection.transition().duration(250)
+            .attr("cx", d => xScale(d[xKey]))
+            .attr("cy", d => yScale(d[yKey]));
+
+        // Generate brand new geometric points
+        const enterPoints = selection.enter()
+            .append("circle")
+            .attr("class", "dot")
+            .attr("r", 6)
+            .attr("cx", d => xScale(d[xKey]))
+            .attr("cy", d => yScale(d[yKey]));
+
+        // Setup unified tooltip visibility settings
+        enterPoints.merge(selection)
+            .on("mouseover", (event, d) => {
+                tooltip.style("opacity", 1);
+                tooltip.html(`
+                    <strong>${d.neighborhood}</strong><br/>
+                    <span style="color:#cbd5e0">${xKey}:</span> ${d[xKey] !== null ? d[xKey].toLocaleString() : 'N/A'}<br/>
+                    <span style="color:#cbd5e0">${yKey}:</span> ${d[yKey] !== null ? d[yKey].toLocaleString() : 'N/A'}
+                `);
+            })
+            .on("mousemove", (event) => {
+                const [mX, mY] = d3.pointer(event, d3.select("#chart").node());
+                tooltip
+                    .style("left", (mX + 15) + "px")
+                    .style("top", (mY - 15) + "px");
+            })
+            .on("mouseleave", () => {
+                tooltip.style("opacity", 0);
+            });
+    }
+
+    function showError(msg) {
+        const box = document.getElementById("error-display");
+        box.innerText = msg;
+        box.style.display = "block";
+    }
+
