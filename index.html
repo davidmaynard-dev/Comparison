@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neighborhood Dynamic Data Explorer</title>
-    <!-- Include D3 safely from trusted external CDN library source -->
-    <script src="https://d3js.org"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -59,37 +57,16 @@
             width: 100%;
             cursor: pointer;
         }
-        #chart {
-            display: flex;
-            justify-content: center;
+        #chart-container {
             position: relative;
             background: #fff;
-            min-height: 500px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
         }
-        .dot {
-            fill: #3182ce;
-            fill-opacity: 0.7;
-            stroke: #2b6cb0;
-            stroke-width: 1px;
-        }
-        .dot:hover {
-            fill: #e53e3e;
-            fill-opacity: 1;
-            stroke: #9b2c2c;
-            stroke-width: 1.5px;
-            cursor: pointer;
-        }
-        .axis-label {
-            font-size: 12px;
-            font-weight: 600;
-            fill: #4a5568;
-        }
-        .grid line {
-            stroke: #e2e8f0;
-            shape-rendering: crispEdges;
-        }
-        .grid path {
-            stroke-width: 0;
+        canvas {
+            border-radius: 4px;
+            display: block;
         }
         .tooltip {
             position: absolute;
@@ -104,6 +81,7 @@
             z-index: 100;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             border: 1px solid #4a5568;
+            transition: opacity 0.1s ease;
         }
         .status-box {
             padding: 12px;
@@ -137,37 +115,35 @@
         </div>
     </div>
 
-    <div id="chart">
+    <div id="chart-container">
+        <canvas id="plotCanvas"></canvas>
         <div id="tooltip" class="tooltip"></div>
     </div>
 </div>
 
 <script>
-    // Dimensions Setup
-    const margin = {top: 20, right: 30, bottom: 65, left: 85};
-    const width = 1000 - margin.left - margin.right;
-    const height = 500 - margin.top - margin.bottom;
+    // Visual Workspace Constants
+    const padding = { top: 30, right: 40, bottom: 65, left: 95 };
+    const canvasWidth = 1000;
+    const canvasHeight = 520;
+    const plotWidth = canvasWidth - padding.left - padding.right;
+    const plotHeight = canvasHeight - padding.top - padding.bottom;
 
-    const svg = d3.select("#chart")
-        .append("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
+    // Element Targets
+    const canvas = document.getElementById("plotCanvas");
+    const ctx = canvas.getContext("2d");
+    const tooltipNode = document.getElementById("tooltip");
+    const selectXNode = document.getElementById("x-select");
+    const selectYNode = document.getElementById("y-select");
 
-    const xAxisG = svg.append("g").attr("transform", `translate(0,${height})`);
-    const yAxisG = svg.append("g");
-    const xGridG = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
-    const yGridG = svg.append("g").attr("class", "grid");
-
-    const xLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + 50);
-    const yLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", -60);
+    // Configure high-dpi resolution handling
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
 
     let parsedDataset = [];
     let numericalHeadersList = [];
-    const tooltipNode = d3.select("#tooltip");
+    let activeHoverPoint = null;
 
-    // Clean monetary strings, ratio percentages, and double quote formatting safely
     function cleanCellToNumber(rawStringValue) {
         if (!rawStringValue) return 0;
         let scrubbed = rawStringValue.toString().replace(/[\"\$\s,%!]/g, '').trim();
@@ -176,7 +152,6 @@
         return isNaN(outputFloat) ? 0 : outputFloat;
     }
 
-    // Secure CSP Compliant Text Row Parser (Does not generate dynamic functions)
     function parseCSVLine(textString) {
         let result = [];
         let insideQuote = false;
@@ -196,26 +171,19 @@
         return result;
     }
 
-    // Use Native Fetch to obtain plaintext structure without passing through internal D3 loaders
+    // Native Data Fetching Hook
     const dataFilename = "demo.csv";
     fetch(dataFilename, { cache: "no-store" })
         .then(response => {
-            if (!response.ok) {
-                throw new Error(`Server returned HTTP Error Status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Server status message: ${response.status}`);
             return response.text();
         })
         .then(textData => {
-            if (!textData || textData.trim() === "") {
-                throw new Error("Target file loaded successfully but contains absolutely no text contents.");
-            }
+            if (!textData || textData.trim() === "") throw new Error("Target dataset file is empty.");
 
             const dataRows = textData.split(/\r?\n/).filter(line => line.trim() !== "");
-            if (dataRows.length < 2) {
-                throw new Error("The target data file lacks structural data records below the row line.");
-            }
+            if (dataRows.length < 2) throw new Error("Dataset lacks row lines.");
 
-            // Isolate headers
             const baseHeaders = parseCSVLine(dataRows[0]);
             const wordExclusions = ["year", "neighborhood", "name", "id"];
             
@@ -224,17 +192,13 @@
                 return !wordExclusions.some(badWord => headerName.toLowerCase().includes(badWord));
             });
 
-            if (numericalHeadersList.length < 2) {
-                throw new Error("Could not programmatically isolate separate numerical variables across your header rows.");
-            }
+            if (numericalHeadersList.length < 2) throw new Error("Insufficient numeric metrics found.");
 
-            // Safe Index-Based Object Mapping (Fully avoids dynamic evaluation triggers)
             for (let r = 1; r < dataRows.length; r++) {
                 let cellValues = parseCSVLine(dataRows[r]);
                 if (cellValues.length < baseHeaders.length) continue;
 
-                // Find where the neighborhood string column sits
-                let neighborhoodText = cellValues[1] || "Unknown Node Area";
+                let neighborhoodText = cellValues[1] || "Unknown Area";
                 let mappedObject = { neighborhood: neighborhoodText };
 
                 baseHeaders.forEach((header, index) => {
@@ -245,79 +209,186 @@
                 parsedDataset.push(mappedObject);
             }
 
-            const selectXNode = document.getElementById("x-select");
-            const selectYNode = document.getElementById("y-select");
-
             selectXNode.innerHTML = "";
             selectYNode.innerHTML = "";
 
             numericalHeadersList.forEach((header, keyIdx) => {
                 let optX = document.createElement("option");
-                optX.value = header;
-                optX.textContent = header;
-                if (keyIdx === 2) optX.selected = true; // SEX AND AGE!!Total population default
+                optX.value = header; optX.textContent = header;
+                if (keyIdx === 2) optX.selected = true;
                 selectXNode.appendChild(optX);
 
                 let optY = document.createElement("option");
-                optY.value = header;
-                optY.textContent = header;
-                // Set default Y axis to fall on an alternative column index mapping parameter
-                if (keyIdx === Math.min(33, numericalHeadersList.length - 1)) optY.selected = true; 
+                optY.value = header; optY.textContent = header;
+                if (keyIdx === Math.min(33, numericalHeadersList.length - 1)) optY.selected = true;
                 selectYNode.appendChild(optY);
             });
 
-            selectXNode.addEventListener("change", updateScatterPlotGraphics);
-            selectYNode.addEventListener("change", updateScatterPlotGraphics);
+            selectXNode.addEventListener("change", () => renderScatterPlot());
+            selectYNode.addEventListener("change", () => renderScatterPlot());
+            
+            // Mouse Tracking Listeners
+            canvas.addEventListener("mousemove", handleCanvasMouseMove);
+            canvas.addEventListener("mouseleave", () => {
+                activeHoverPoint = null;
+                tooltipNode.style.opacity = "0";
+                renderScatterPlot();
+            });
 
-            updateScatterPlotGraphics();
+            renderScatterPlot();
         })
         .catch(runtimeError => {
             const errorDivElement = document.getElementById("status-display");
-        errorDivElement.innerText = Execution Failed: ${runtimeError.message}. Double-check that your file is named exactly 'demo.csv' (all lowercase) and matches the root folder location.;
-        errorDivElement.style.display = "block";
-        errorDivElement.className = "status-box error";
-        console.error(runtimeError);
+            errorDivElement.innerText = `Execution Failed: ${runtimeError.message}. Verify that 'demo.csv' sits in your root repository folder folder layout.`;
+            errorDivElement.style.display = "block";
+            errorDivElement.className = "status-box error";
         });
-        function updateScatterPlotGraphics() {
-        const currentXSelection = document.getElementById("x-select").value;
-        const currentYSelection = document.getElementById("y-select").value;
-        xLabel.text(currentXSelection);
-        yLabel.text(currentYSelection);
-        const scaleX = d3.scaleLinear()
-        .domain(d3.extent(parsedDataset, d => d[currentXSelection]))
-        .range([0, width])
-        .nice();
-        const scaleY = d3.scaleLinear()
-        .domain(d3.extent(parsedDataset, d => d[currentYSelection]))
-        .range([height, 0])
-        .nice();
-        xGridG.transition().duration(250).call(d3.axisBottom(scaleX).tickSize(-height).tickFormat(""));
-        yGridG.transition().duration(250).call(d3.axisLeft(scaleY).tickSize(-width).tickFormat(""));
-        xAxisG.transition().duration(250).call(d3.axisBottom(scaleX));
-        yAxisG.transition().duration(250).call(d3.axisLeft(scaleY));
-        const nodes = svg.selectAll(".dot").data(parsedDataset);
-        nodes.exit().remove();
-        nodes.transition().duration(250)
-        .attr("cx", d => scaleX(d[currentXSelection]))
-        .attr("cy", d => scaleY(d[currentYSelection]));
-        const entryNodes = nodes.enter()
-        .append("circle")
-        .attr("class", "dot")
-        .attr("r", 6)
-        .attr("cx", d => scaleX(d[currentXSelection]))
-        .attr("cy", d => scaleY(d[currentYSelection]));
-        entryNodes.merge(nodes)
-        .on("mouseover", (event, dataRecord) => {
-        tooltipNode.style("opacity", 1);
-        tooltipNode.html(<strong style="color:#63b3ed; font-size:13px;">${dataRecord.neighborhood}</strong><br/> <hr style="border:0; border-top:1px solid #4a5568; margin:4px 0;"/> <span style="color:#a0aec0">${currentXSelection}:</span> ${dataRecord[currentXSelection].toLocaleString()}<br/> <span style="color:#a0aec0">${currentYSelection}:</span> ${dataRecord[currentYSelection].toLocaleString()});
-        })
-        .on("mousemove", (event) => {
-        const [cursorX, cursorY] = d3.pointer(event, d3.select("#chart").node());
-        tooltipNode
-        .style("left", (cursorX + 15) + "px")
-        .style("top", (cursorY - 15) + "px");
-        })
-        .on("mouseleave", () => {
-        tooltipNode.style("opacity", 0);
+
+    function getBounds(dataset, key) {
+        let min = Infinity, max = -Infinity;
+        dataset.forEach(d => {
+            if (d[key] < min) min = d[key];
+            if (d[key] > max) max = d[key];
+        });
+        // Add padding buffers so points don't clip chart edges
+        let paddingBuffer = (max - min) * 0.05 || 1;
+        return { min: Math.max(0, min - paddingBuffer), max: max + paddingBuffer };
+    }
+
+    // Generate balanced graphic scale ticks
+    function generateTicks(min, max, count = 6) {
+        let ticks = [];
+        let step = (max - min) / (count - 1);
+        for (let i = 0; i < count; i++) {
+            ticks.push(min + (step * i));
+        }
+        return ticks;
+    }
+
+    function renderScatterPlot() {
+        const currentX = selectXNode.value;
+        const currentY = selectYNode.value;
+
+        // Clear view space
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+        // Compute local min/max metrics
+        const xBounds = getBounds(parsedDataset, currentX);
+        const yBounds = getBounds(parsedDataset, currentY);
+
+        // Mapping Helper Functions
+        const getScreenX = (val) => padding.left + ((val - xBounds.min) / (xBounds.max - xBounds.min)) * plotWidth;
+        const getScreenY = (val) => padding.top + plotHeight - ((val - yBounds.min) / (yBounds.max - yBounds.min)) * plotHeight;
+
+        // Draw Background Help Grids
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.lineWidth = 1;
+        ctx.fillStyle = "#718096";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "center";
+        
+        // X Axis Ticks & Grids
+        const xTicks = generateTicks(xBounds.min, xBounds.max);
+        xTicks.forEach(t => {
+        let cx = getScreenX(t);
+        ctx.beginPath();
+        ctx.moveTo(cx, padding.top);
+        ctx.lineTo(cx, padding.top + plotHeight);
+        ctx.stroke();
+        ctx.fillText(Math.round(t).toLocaleString(), cx, padding.top + plotHeight + 20);
+        });
+        
+        // Y Axis Ticks & Grids
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const yTicks = generateTicks(yBounds.min, yBounds.max);
+        yTicks.forEach(t => {
+        let cy = getScreenY(t);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, cy);
+        ctx.lineTo(padding.left + plotWidth, cy);
+        ctx.stroke();
+        ctx.fillText(Math.round(t).toLocaleString(), padding.left - 12, cy);
+        });
+        
+        // Draw Core Structural Axes Borders
+        ctx.strokeStyle = "#cbd5e0";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, padding.top);
+        ctx.lineTo(padding.left, padding.top + plotHeight);
+        ctx.lineTo(padding.left + plotWidth, padding.top + plotHeight);
+        ctx.stroke();
+        
+        // Print Graph Labels
+        ctx.fillStyle = "#2d3748";
+        ctx.font = "bold 13px sans-serif";
+        ctx.textAlign = "center";
+        
+        // X Label
+        ctx.fillText(currentX, padding.left + (plotWidth / 2), canvasHeight - 15);
+        
+        // Y Label
+        ctx.save();
+        ctx.translate(25, padding.top + (plotHeight / 2));
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(currentY, 0, 0);
+        ctx.restore();
+        
+        // Map and render neighborhood dots
+        parsedDataset.forEach(d => {
+        d._cx = getScreenX(d[currentX]);
+        d._cy = getScreenY(d[currentY]);
+        ctx.beginPath();
+        ctx.arc(d._cx, d._cy, 6, 0, 2 * Math.PI);
+        if (activeHoverPoint && activeHoverPoint.neighborhood === d.neighborhood) {
+        
+        // Highlight focused node
+        ctx.fillStyle = "#e53e3e";
+        ctx.strokeStyle = "#9b2c2c";
+        ctx.lineWidth = 2;
+        ctx.arc(d._cx, d._cy, 8, 0, 2 * Math.PI); // Draw sizing expand layout effect
+        } else {
+        // Default node styling
+        ctx.fillStyle = "rgba(49, 130, 206, 0.65)";
+        ctx.strokeStyle = "#2b6cb0";
+        ctx.lineWidth = 1;
+        }
+        ctx.fill();
+        ctx.stroke();
         });
         }
+        function handleCanvasMouseMove(event) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        let foundPoint = null;
+        
+        // Search array records from top to bottom to check hit collisions
+        for (let i = parsedDataset.length - 1; i >= 0; i--) {
+        let d = parsedDataset[i];
+        let dist = Math.sqrt((mouseX - d._cx) ** 2 + (mouseY - d._cy) ** 2);
+        if (dist <= 9) { // Collision tolerance radius boundary
+        foundPoint = d;
+        break;
+        }
+        }
+        if (foundPoint) {
+        if (!activeHoverPoint || activeHoverPoint.neighborhood !== foundPoint.neighborhood) {
+        activeHoverPoint = foundPoint;
+        renderScatterPlot(); // Trigger explicit highlight update pass
+        }
+        const currentX = selectXNode.value;
+        const currentY = selectYNode.value;
+        tooltipNode.style.opacity = "1";
+        tooltipNode.style.left = (mouseX + 15) + "px";
+        tooltipNode.style.top = (mouseY - 15) + "px";
+        tooltipNode.html = ""; // Clear fallback structures safely
+        tooltipNode.innerHTML = <strong style="color:#63b3ed; font-size:13px;">${foundPoint.neighborhood}</strong><br/> <hr style="border:0; border-top:1px solid #4a5568; margin:4px 0;"/> <span style="color:#a0aec0">${currentX}:</span> ${foundPoint[currentX].toLocaleString()}<br/> <span style="color:#a0aec0">${currentY}:</span> ${foundPoint[currentY].toLocaleString()};
+        } else if (activeHoverPoint) {
+        activeHoverPoint = null;
+        tooltipNode.style.opacity = "0";
+        renderScatterPlot();
+        }
+        }
+
