@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neighborhood Data Explorer</title>
-    <!-- Load Plotly.js for charting and PapaParse for CSV parsing -->
-    <script src="https://plot.ly"></script>
-    <script src="https://cloudflare.com"></script>
+    <title>Neighborhood Splatter Plot</title>
+    <!-- Include D3.js Library for Data Visualization -->
+    <script src="https://d3js.org"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 40px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 20px;
             background-color: #f8f9fa;
+            color: #333;
         }
         .container {
             max-width: 1000px;
@@ -19,12 +19,17 @@
             background: white;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        h1 {
+            margin-top: 0;
+            color: #1a1a1a;
+            font-size: 24px;
         }
         .controls {
             display: flex;
             gap: 20px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             background: #f1f3f5;
             padding: 15px;
             border-radius: 6px;
@@ -32,149 +37,264 @@
         .control-group {
             display: flex;
             flex-direction: column;
-            flex: 1;
+            gap: 5px;
         }
         label {
-            font-weight: bold;
-            margin-bottom: 5px;
+            font-weight: 600;
+            font-size: 14px;
             color: #495057;
         }
         select {
-            padding: 8px;
-            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 14px;
             border: 1px solid #ced4da;
-            font-size: 16px;
+            border-radius: 4px;
+            background-color: white;
+            cursor: pointer;
+            min-width: 200px;
         }
-        #chart {
-            width: 100%;
-            height: 600px;
+        #plot {
+            display: flex;
+            justify-content: center;
+            background: #fff;
+            position: relative;
+        }
+        .dot {
+            fill: #4c6ef5;
+            fill-opacity: 0.7;
+            stroke: #3b5bdb;
+            stroke-width: 1px;
+            transition: all 0.2s ease;
+        }
+        .dot:hover {
+            fill: #e03131;
+            fill-opacity: 0.9;
+            stroke: #c92a2a;
+            stroke-width: 2px;
+            r: 8px;
+        }
+        .axis-label {
+            font-size: 14px;
+            font-weight: 500;
+            fill: #495057;
+        }
+        .grid line {
+            stroke: #e9ecef;
+            stroke-opacity: 0.7;
+            shape-rendering: crispEdges;
+        }
+        .grid path {
+            stroke-width: 0;
+        }
+        .tooltip {
+            position: absolute;
+            padding: 8px 12px;
+            background: rgba(33, 37, 41, 0.9);
+            color: white;
+            border-radius: 4px;
+            font-size: 13px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            z-index: 10;
+        }
+        .error-message {
+            color: #e03131;
+            background: #fff5f5;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ffa8a8;
+            margin-bottom: 20px;
+            display: none;
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Neighborhood Socioeconomic Explorer</h2>
+    <h1>Neighborhood Dynamics Explorer</h1>
     
+    <div id="error-box" class="error-message"></div>
+
     <div class="controls">
         <div class="control-group">
-            <label for="xAxisSelect">X-Axis Variable</label>
-            <select id="xAxisSelect"></select>
+            <label for="x-select">X Axis Variable</label>
+            <select id="x-select"></select>
         </div>
         <div class="control-group">
-            <label for="yAxisSelect">Y-Axis Variable</label>
-            <select id="yAxisSelect"></select>
+            <label for="y-select">Y Axis Variable</label>
+            <select id="y-select"></select>
         </div>
     </div>
 
-    <div id="chart"></div>
+    <div id="plot">
+        <div id="tooltip" class="tooltip"></div>
+    </div>
 </div>
 
 <script>
-    let rawData = [];
-    let variables = new Set();
+    // Set up dimensions for the chart canvas
+    const margin = {top: 40, right: 40, bottom: 60, left: 70};
+    const width = 900 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
 
-    // 1. Fetch and parse the CSV file
-    // Assumes your CSV file is named "CHANGES.csv" and sits in the same folder
-    Papa.parse("CHANGES.csv", {
-        download: true,
-        header: true,
-        dynamicTyping: true,
-        complete: function(results) {
-            rawData = results.data;
-            
-            // Extract all unique variables from the data rows
-            rawData.forEach(row => {
-                if (row.VARIABLE_X) variables.add(row.VARIABLE_X);
-                if (row.VARIABLE_Y) variables.add(row.VARIABLE_Y);
-            });
+    // Create the core SVG container inside the #plot div
+    const svg = d3.select("#plot")
+        .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
 
-            populateDropdowns();
-            updateChart();
+    // Append axis graphic containers
+    const xAxisG = svg.append("g").attr("transform", `translate(0,${height})`);
+    const yAxisG = svg.append("g");
+    
+    // Append grid containers
+    const xGridG = svg.append("g").attr("class", "grid").attr("transform", `translate(0,${height})`);
+    const yGridG = svg.append("g").attr("class", "grid");
+
+    // Append labels for axes
+    const xLabel = svg.append("text")
+        .attr("class", "axis-label")
+        .attr("text-anchor", "middle")
+        .attr("x", width / 2)
+        .attr("y", height + 45);
+
+    const yLabel = svg.append("text")
+        .attr("class", "axis-label")
+        .attr("text-anchor", "middle")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -height / 2)
+        .attr("y", -50);
+
+    // Dynamic global state data
+    let globalData = [];
+    let numericColumns = [];
+    const tooltip = d3.select("#tooltip");
+
+    // Load the external CSV file dynamically
+    d3.csv("Chango.csv").then(data => {
+        if (!data || data.length === 0) {
+            throw new Error("The CSV file appears to be empty or misformatted.");
         }
+
+        globalData = data;
+
+        // Auto-detect all column headers that contain numeric properties
+        const firstRow = data[0];
+        numericColumns = Object.keys(firstRow).filter(key => {
+            // Check if values can be parsed as floating numbers (exclude standard neighborhood name fields)
+            return !isNaN(parseFloat(firstRow[key])) && key.toLowerCase() !== 'id';
+        });
+
+        if (numericColumns.length < 2) {
+            throw new Error("Could not find enough numeric columns in Chango.csv to build a scatter plot.");
+        }
+
+        // Identify structural descriptive key for hover labels (e.g., Neighborhood, Name)
+        const allKeys = Object.keys(firstRow);
+        const labelKey = allKeys.find(k => k.toLowerCase().includes('neighborhood') || k.toLowerCase().includes('name')) || allKeys[0];
+        globalData.forEach(d => d._label = d[labelKey] || "Unknown Node");
+
+        // Convert data types from strings to absolute floats for valid plotting math
+        globalData.forEach(d => {
+            numericColumns.forEach(col => {
+                d[col] = +d[col];
+            });
+        });
+
+        // Populate dropdown menu selections
+        const xSelect = d3.select("#x-select");
+        const ySelect = d3.select("#y-select");
+
+        numericColumns.forEach((col, idx) => {
+            xSelect.append("option").text(col).attr("value", col).property("selected", idx === 0);
+            ySelect.append("option").text(col).attr("value", col).property("selected", idx === 1 || idx === 0);
+        });
+
+        // Add event handling logic to listen for change variables
+        xSelect.on("change", updatePlot);
+        ySelect.on("change", updatePlot);
+
+        // Initial setup execution
+        updatePlot();
+
+    }).catch(error => {
+        // Fallback display if pathing or structure fails
+        console.error("Error loading CSV details:", error);
+        const errorBox = document.getElementById("error-box");
+        errorBox.innerText = `Failed to process data from 'Chango.csv': ${error.message}. Please verify the file is in the same directory and you are running a local development server.`;
+        errorBox.style.display = "block";
     });
 
-    // 2. Populate the filter dropdowns dynamically
-    function populateDropdowns() {
-        const xSelect = document.getElementById('xAxisSelect');
-        const ySelect = document.getElementById('yAxisSelect');
-        
-        const varList = Array.from(variables).sort();
-        
-        varList.forEach((variable, index) => {
-            const optX = new Option(variable, variable);
-            const optY = new Option(variable, variable);
-            xSelect.add(optX);
-            ySelect.add(optY);
-        });
+    // Drawing function to refresh canvas scales and points
+    function updatePlot() {
+        const xVar = d3.select("#x-select").property("value");
+        const yVar = d3.select("#y-select").property("value");
 
-        // Set different defaults if possible
-        if (varList.length > 1) {
-            ySelect.selectedIndex = 1;
-        }
+        // Update structural titles dynamically
+        xLabel.text(xVar);
+        yLabel.text(yVar);
 
-        xSelect.addEventListener('change', updateChart);
-        ySelect.addEventListener('change', updateChart);
-    }
+        // Calculate maximum scales based on dynamically loaded content metrics
+        const xScale = d3.scaleLinear()
+            .domain(d3.extent(globalData, d => d[xVar]))
+            .range([0, width])
+            .nice();
 
-    // 3. Filter data and update the scatter plot matrix
-    function updateChart() {
-        const selectedX = document.getElementById('xAxisSelect').value;
-        const selectedY = document.getElementById('yAxisSelect').value;
+        const yScale = d3.scaleLinear()
+            .domain(d3.extent(globalData, d => d[yVar]))
+            .range([height, 0])
+            .nice();
 
-        // Map data points by neighborhood to resolve independent rows
-        const neighborhoodMap = {};
+        // Render mathematical grids
+        xGridG.transition().duration(500).call(d3.axisBottom(xScale).tickSize(-height).tickFormat(""));
+        yGridG.transition().duration(500).call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
 
-        rawData.forEach(row => {
-            const neighborhood = row.NEIGHBORHOOD;
-            if (!neighborhood) return;
+        // Render graphical scale ticks
+        xAxisG.transition().duration(500).call(d3.axisBottom(xScale));
+        yAxisG.transition().duration(500).call(d3.axisLeft(yScale));
 
-            if (!neighborhoodMap[neighborhood]) {
-                neighborhoodMap[neighborhood] = { name: neighborhood, x: null, y: null };
-            }
+        // Bind raw neighborhood entries directly to interactive circles
+        const circles = svg.selectAll(".dot")
+            .data(globalData);
 
-            if (row.VARIABLE_X === selectedX) {
-                neighborhoodMap[neighborhood].x = cleanValue(row.VALUE_X);
-            }
-            if (row.VARIABLE_Y === selectedY) {
-                neighborhoodMap[neighborhood].y = cleanValue(row.VALUE_Y);
-            }
-        });
+        // Remove unneeded nodes
+        circles.exit().remove();
 
-        // Convert mapped entries into coordinate arrays
-        const plotData = Object.values(neighborhoodMap).filter(pt => pt.x !== null && pt.y !== null);
-        
-        const xValues = plotData.map(pt => pt.x);
-        const yValues = plotData.map(pt => pt.y);
-        const labels = plotData.map(pt => pt.name);
+        // Update existing points smoothly, transitioning coordinate spaces
+        circles.transition().duration(500)
+            .attr("cx", d => xScale(d[xVar]))
+            .attr("cy", d => yScale(d[yVar]));
 
-        const trace = {
-            x: xValues,
-            y: yValues,
-            text: labels,
-            mode: 'markers',
-            type: 'scatter',
-            marker: { size: 10, color: '#339af0', opacity: 0.8 }
-        };
+        // Instantiate new elements if values expand
+        const enterCircles = circles.enter()
+            .append("circle")
+            .attr("class", "dot")
+            .attr("r", 5)
+            .attr("cx", d => xScale(d[xVar]))
+            .attr("cy", d => yScale(d[yVar]));
 
-        const layout = {
-            xaxis: { title: selectedX },
-            yaxis: { title: selectedY },
-            hovermode: 'closest',
-            margin: { t: 20 }
-        };
-
-        Plotly.newPlot('chart', [trace], layout);
-    }
-
-    // Helper to sanitize numeric entries containing dollar signs or commas
-    function cleanValue(val) {
-        if (typeof val === 'string') {
-            const clean = val.replace(/[\$,]/g, '');
-            return isNaN(clean) ? null : parseFloat(clean);
-        }
-        return val;
-    }
-</script>
-</body>
-</html>
+        // Merge and re-apply modern contextual tooltip events across elements
+        enterCircles.merge(circles)
+            .on("mouseover", (event, d) => {
+                tooltip.style("opacity", 1);
+                tooltip.html(`
+                    <strong>${d._label}</strong><br/>
+                    ${xVar}: ${d[xVar]}<br/>
+                    ${yVar}: ${d[yVar]}
+                `);
+            })
+            .on("mousemove", (event) => {
+                // Keep tooltip tracking cursor coordinate bounds
+                const [mouseX, mouseY] = d3.pointer(event, d3.select("#plot").node());
+tooltip
+.style("left", (mouseX + 15) + "px")
+.style("top", (mouseY - 15) + "px");
+})
+.on("mouseleave", () => {
+tooltip.style("opacity", 0);
+});
+}
